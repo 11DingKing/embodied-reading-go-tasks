@@ -242,10 +242,10 @@ func (s AuthService) DeactivateUser(ctx context.Context, actor Actor, userID str
 	if err := user.Deactivate(now); err != nil {
 		return err
 	}
-	if err := s.Store.UpdateUser(ctx, user, previous); err != nil {
-		return err
-	}
 	return s.Store.WithinTx(ctx, func(ctx context.Context, tx repository.Tx) error {
+		if err := tx.UpdateUser(ctx, user, previous); err != nil {
+			return err
+		}
 		if _, err := tx.RevokeSessionsForUser(ctx, actor.TenantID, userID, now); err != nil {
 			return err
 		}
