@@ -108,17 +108,28 @@ func (a *Assignment) Submit(owner string, token int64, now time.Time) error {
 	return nil
 }
 
-func (a *Assignment) BeginMove(now time.Time) error {
-	return a.Release(now)
-}
-
-func (a *Assignment) FinishMove(pages PageRange, start, end, now time.Time) {
+// Move relocates an unused reservation to a new page section and window. It is
+// a single atomic transition: the original reservation stays reserved until the
+// caller has confirmed the new range is conflict-free and committed the change.
+// Releasing first and restoring on failure cannot be made race-free, so Move
+// only mutates state when the new range is known to be acceptable.
+func (a *Assignment) Move(pages PageRange, start, end, now time.Time) error {
+	if a.State != AssignmentReserved {
+		return fault.StateConflict("assignment", string(a.State), string(AssignmentReserved))
+	}
+	if err := pages.Validate(); err != nil {
+		return err
+	}
+	start, end = start.UTC(), end.UTC()
+	if !end.After(start) {
+		return fault.Invalid("assignment_window", "must end after it starts")
+	}
 	a.Pages = pages
-	a.WindowStart = start.UTC()
-	a.WindowEnd = end.UTC()
-	a.State = AssignmentReserved
+	a.WindowStart = start
+	a.WindowEnd = end
 	a.Version++
 	a.UpdatedAt = now.UTC()
+	return nil
 }
 
 func (a *Assignment) Release(now time.Time) error {

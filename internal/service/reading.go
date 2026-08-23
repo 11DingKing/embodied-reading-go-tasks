@@ -103,17 +103,26 @@ func (s ReadingService) MoveReservation(ctx context.Context, actor Actor, assign
 	if !end.After(start) {
 		return reading.Assignment{}, fault.Invalid("assignment_window", "must end after it starts")
 	}
-	previous := assignment.Version
 	now := s.Clock.Now()
-	if err := assignment.BeginMove(now); err != nil {
+	if err := assignment.Move(pages, start, end, now); err != nil {
 		return reading.Assignment{}, err
 	}
-	if err := s.Store.UpdateAssignment(ctx, assignment, previous); err != nil {
-		return reading.Assignment{}, err
-	}
-	previous = assignment.Version
-	assignment.FinishMove(pages, start, end, now)
 	err = s.Store.WithinTx(ctx, func(ctx context.Context, tx repository.Tx) error {
+		// Re-read under the transaction lock so the reservation is still owned
+		// and unchanged before we relocate it. This guards against a concurrent
+		// move/start/release/expire racing between the outer GetAssignment and
+		// the optimistic update below.
+		fresh, err := tx.GetAssignment(ctx, actor.TenantID, assignment.ID)
+		if err != nil {
+			return err
+		}
+		if fresh.Version != assignment.Version-1 || fresh.State != reading.AssignmentReserved {
+			return fault.New(fault.Conflict, "assignment_changed", "reservation changed before it could be moved")
+		}
+		// The reservation has not been released, so the caller's own assignment
+		// is still counted as an active reservation. Exclude it while probing
+		// the new range; its old range is overwritten atomically with this
+		// commit, so a failed move must leave it intact.
 		conflicts, err := tx.FindAssignmentConflicts(ctx, assignment.TenantID, assignment.ProgramID, assignment.EditionID, pages, start, end, assignment.ID)
 		if err != nil {
 			return err
@@ -121,12 +130,15 @@ func (s ReadingService) MoveReservation(ctx context.Context, actor Actor, assign
 		if len(conflicts) > 0 {
 			return fault.New(fault.Conflict, "page_section_already_reserved", "new page section overlaps an active reservation")
 		}
-		if err := tx.UpdateAssignment(ctx, assignment, previous); err != nil {
+		if err := tx.UpdateAssignment(ctx, assignment, fresh.Version); err != nil {
 			return err
 		}
 		return addAudit(ctx, tx, s.IDs, actor, "reading.reservation_move", "section_assignment", assignment.ID, audit.Succeeded, map[string]any{"page_start": pages.Start, "page_end": pages.End}, now)
 	})
-	return assignment, err
+	if err != nil {
+		return reading.Assignment{}, err
+	}
+	return assignment, nil
 }
 
 type StartReadingInput struct {
