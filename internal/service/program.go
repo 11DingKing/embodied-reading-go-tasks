@@ -197,31 +197,31 @@ func (s ProgramService) AddMembersAtomically(ctx context.Context, actor Actor, p
 	if len(userIDs) == 0 {
 		return nil, fault.Invalid("members", "must not be empty")
 	}
-	seen := map[string]struct{}{}
 	results := make([]BatchMemberResult, len(userIDs))
 	now := s.Clock.Now()
-	err := func() error {
-		value, err := s.Store.GetProgram(ctx, actor.TenantID, programID)
+	err := s.Store.WithinTx(ctx, func(ctx context.Context, tx repository.Tx) error {
+		value, err := tx.GetProgram(ctx, actor.TenantID, programID)
 		if err != nil {
 			return err
 		}
 		if value.CoordinatorID != actor.UserID || !value.CanAcceptMembers(now) {
 			return fault.New(fault.Forbidden, "program_enrollment_forbidden", "program cannot be managed by this actor")
 		}
-		count, err := s.Store.CountActiveMembers(ctx, actor.TenantID, programID)
+		count, err := tx.CountActiveMembers(ctx, actor.TenantID, programID)
 		if err != nil {
 			return err
 		}
 		if count+len(userIDs) > value.Capacity {
 			return fault.New(fault.Conflict, "program_capacity_reached", "batch would exceed program capacity")
 		}
+		seen := map[string]struct{}{}
 		for index, userID := range userIDs {
 			results[index].UserID = userID
 			if _, duplicate := seen[userID]; duplicate {
 				return fault.Invalid("members", "must not contain duplicates")
 			}
 			seen[userID] = struct{}{}
-			user, err := s.Store.GetUser(ctx, actor.TenantID, userID)
+			user, err := tx.GetUser(ctx, actor.TenantID, userID)
 			if err != nil {
 				return err
 			}
@@ -232,15 +232,13 @@ func (s ProgramService) AddMembersAtomically(ctx context.Context, actor Actor, p
 			if err != nil {
 				return err
 			}
-			if err := s.Store.InsertMember(ctx, member); err != nil {
+			if err := tx.InsertMember(ctx, member); err != nil {
 				return err
 			}
 			results[index].Member = &member
 		}
-		return s.Store.WithinTx(ctx, func(ctx context.Context, tx repository.Tx) error {
-			return addAudit(ctx, tx, s.IDs, actor, "program.members.batch_add", "program", programID, audit.Succeeded, map[string]any{"member_count": len(userIDs)}, now)
-		})
-	}()
+		return addAudit(ctx, tx, s.IDs, actor, "program.members.batch_add", "program", programID, audit.Succeeded, map[string]any{"member_count": len(userIDs)}, now)
+	})
 	if err != nil {
 		for index := range results {
 			results[index].Error = err
