@@ -121,9 +121,6 @@ func (s ArchiveService) Process(ctx context.Context, tenantID, jobID, workerID s
 	}
 	systemActor := Actor{TenantID: tenantID, UserID: "system", RequestID: s.IDs.New("request")}
 	snapshot := repository.ArchiveSnapshot{ID: s.IDs.New("snapshot"), TenantID: tenantID, ProgramID: job.ProgramID, Hash: hash, Payload: payload, CreatedAt: s.Clock.Now()}
-	if err := repository.PersistSnapshotEarly(ctx, s.Store, snapshot); err != nil {
-		return err
-	}
 	return s.Store.WithinTx(ctx, func(ctx context.Context, tx repository.Tx) error {
 		freshReadiness, err := tx.GetProgramReadiness(ctx, tenantID, job.ProgramID, s.Clock.Now())
 		if err != nil {
@@ -131,6 +128,9 @@ func (s ArchiveService) Process(ctx context.Context, tenantID, jobID, workerID s
 		}
 		if !freshReadiness.ReadyForArchive() {
 			return fault.New(fault.Conflict, "archive_readiness_changed", "program resources changed before snapshot commit")
+		}
+		if err := tx.InsertArchiveSnapshot(ctx, snapshot); err != nil {
+			return err
 		}
 		if err := tx.UpdateArchiveJob(ctx, job, completeVersion); err != nil {
 			return err
