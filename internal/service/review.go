@@ -197,10 +197,17 @@ func (s ReviewService) OpenDispute(ctx context.Context, actor Actor, claimID, re
 	if err := evidence.OpenClaimDispute(&claim, now); err != nil {
 		return evidence.Dispute{}, err
 	}
-	if err := s.Store.UpdateClaim(ctx, claim, claimVersion); err != nil {
-		return evidence.Dispute{}, err
-	}
 	err = s.Store.WithinTx(ctx, func(ctx context.Context, tx repository.Tx) error {
+		fresh, err := tx.GetClaim(ctx, actor.TenantID, claimID)
+		if err != nil {
+			return err
+		}
+		if fresh.Version != claimVersion {
+			return fault.New(fault.Conflict, "claim_dispute_changed", "claim changed while dispute was opened")
+		}
+		if err := tx.UpdateClaim(ctx, claim, claimVersion); err != nil {
+			return err
+		}
 		if err := tx.InsertDispute(ctx, dispute); err != nil {
 			return err
 		}
