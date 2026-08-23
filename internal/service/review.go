@@ -254,10 +254,10 @@ func (s ReviewService) ResolveDispute(ctx context.Context, actor Actor, input Re
 	if err := claim.Resolve(input.Uphold, input.ReviewID, now); err != nil {
 		return evidence.Dispute{}, evidence.Claim{}, err
 	}
-	if err := s.Store.UpdateDispute(ctx, dispute, disputeVersion); err != nil {
-		return evidence.Dispute{}, evidence.Claim{}, err
-	}
 	err = s.Store.WithinTx(ctx, func(ctx context.Context, tx repository.Tx) error {
+		if err := tx.UpdateDispute(ctx, dispute, disputeVersion); err != nil {
+			return err
+		}
 		if err := tx.UpdateClaim(ctx, claim, claimVersion); err != nil {
 			return err
 		}
@@ -266,7 +266,10 @@ func (s ReviewService) ResolveDispute(ctx context.Context, actor Actor, input Re
 		}
 		return addAudit(ctx, tx, s.IDs, actor, "claim.resolve_dispute", "claim", claim.ID, audit.Succeeded, map[string]any{"uphold": input.Uphold}, now)
 	})
-	return dispute, claim, err
+	if err != nil {
+		return evidence.Dispute{}, evidence.Claim{}, err
+	}
+	return dispute, claim, nil
 }
 
 func (s ReviewService) Queue(ctx context.Context, actor Actor, states []review.AssignmentState, page repository.Page) (repository.ReviewQueuePage, error) {
