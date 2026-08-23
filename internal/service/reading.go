@@ -209,10 +209,10 @@ func (s ReadingService) Abandon(ctx context.Context, actor Actor, sessionID, rea
 	if err := assignment.Release(now); err != nil {
 		return err
 	}
-	if err := s.Store.UpdateReadingSession(ctx, session, sessionVersion); err != nil {
-		return err
-	}
 	return s.Store.WithinTx(ctx, func(ctx context.Context, tx repository.Tx) error {
+		if err := tx.UpdateReadingSession(ctx, session, sessionVersion); err != nil {
+			return err
+		}
 		if err := tx.UpdateAssignment(ctx, assignment, assignmentVersion); err != nil {
 			return err
 		}
