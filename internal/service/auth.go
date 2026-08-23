@@ -144,10 +144,10 @@ func (s AuthService) Login(ctx context.Context, requestID string, input LoginInp
 		return LoginResult{}, err
 	}
 	actor := Actor{TenantID: user.TenantID, UserID: user.ID, RequestID: requestID}
-	if err := s.Store.InsertSession(ctx, session); err != nil {
-		return LoginResult{}, err
-	}
 	err = s.Store.WithinTx(ctx, func(ctx context.Context, tx repository.Tx) error {
+		if err := tx.InsertSession(ctx, session); err != nil {
+			return err
+		}
 		return addAudit(ctx, tx, s.IDs, actor, "session.login", "session", session.ID, audit.Succeeded, map[string]any{"expires_at": session.ExpiresAt}, now)
 	})
 	if err != nil {
