@@ -165,7 +165,10 @@ func (s SeminarService) Close(ctx context.Context, actor Actor, agendaID string)
 		return seminar.Agenda{}, err
 	}
 	err = s.Store.WithinTx(ctx, func(ctx context.Context, tx repository.Tx) error {
-		freshItems := seminar.PendingSnapshot(items)
+		freshItems, err := tx.ListAgendaItems(ctx, actor.TenantID, agenda.ID)
+		if err != nil {
+			return err
+		}
 		for _, item := range freshItems {
 			if item.State == seminar.ItemPending {
 				return fault.New(fault.Conflict, "agenda_resolution_changed", "agenda item became unresolved before closing")
