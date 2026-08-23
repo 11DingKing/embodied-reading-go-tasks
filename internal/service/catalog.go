@@ -58,12 +58,12 @@ func (s CatalogService) RegisterEdition(ctx context.Context, actor Actor, input 
 	if err := edition.Activate(now); err != nil {
 		return RegisterEditionResult{}, err
 	}
-	if input.WorkID == "" {
-		if err := s.Store.InsertWork(ctx, work); err != nil {
-			return RegisterEditionResult{}, err
-		}
-	}
 	err = s.Store.WithinTx(ctx, func(ctx context.Context, tx repository.Tx) error {
+		if input.WorkID == "" {
+			if err := tx.InsertWork(ctx, work); err != nil {
+				return err
+			}
+		}
 		if err := tx.InsertEdition(ctx, edition); err != nil {
 			return err
 		}
