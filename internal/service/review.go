@@ -44,9 +44,6 @@ func (s ReviewService) Assign(ctx context.Context, actor Actor, claimID, reviewe
 	if err := claim.PrepareReview(assignment.ID, now); err != nil {
 		return review.Assignment{}, err
 	}
-	if err := s.Store.InsertReviewAssignment(ctx, assignment); err != nil {
-		return review.Assignment{}, err
-	}
 	err = s.Store.WithinTx(ctx, func(ctx context.Context, tx repository.Tx) error {
 		fresh, err := tx.GetClaim(ctx, actor.TenantID, claimID)
 		if err != nil {
@@ -56,6 +53,9 @@ func (s ReviewService) Assign(ctx context.Context, actor Actor, claimID, reviewe
 			return fault.New(fault.Conflict, "claim_assignment_changed", "claim changed while review was assigned")
 		}
 		if err := tx.UpdateClaim(ctx, claim, claimVersion); err != nil {
+			return err
+		}
+		if err := tx.InsertReviewAssignment(ctx, assignment); err != nil {
 			return err
 		}
 		if err := addOutbox(ctx, tx, s.IDs, actor.TenantID, "review.assigned", assignment.ID, map[string]string{"reviewer_id": reviewerID, "claim_id": claimID}, now); err != nil {
