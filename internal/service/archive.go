@@ -42,7 +42,11 @@ func (s ArchiveService) Request(ctx context.Context, actor Actor, programID stri
 		return archive.Job{}, readiness, err
 	}
 	err = s.Store.WithinTx(ctx, func(ctx context.Context, tx repository.Tx) error {
-		freshReadiness := repository.ArchiveReadinessSnapshot(readiness)
+		freshReadiness, err := tx.GetProgramReadiness(ctx, actor.TenantID, programID, now)
+		if err != nil {
+			return err
+		}
+		readiness = freshReadiness
 		if !freshReadiness.ReadyForArchive() {
 			return fault.New(fault.Conflict, "archive_readiness_changed", "program resources changed before archive job was queued")
 		}

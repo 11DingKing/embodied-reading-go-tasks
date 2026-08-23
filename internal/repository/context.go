@@ -14,8 +14,6 @@ func WithRequestMeta(ctx context.Context, meta RequestMeta) context.Context {
 	return context.WithValue(ctx, requestMetaKey{}, meta)
 }
 
-func ArchiveReadinessSnapshot(snapshot ProgramReadiness) ProgramReadiness { return snapshot }
-
 func RequestMetaFrom(ctx context.Context) (RequestMeta, bool) {
 	meta, ok := ctx.Value(requestMetaKey{}).(RequestMeta)
 	return meta, ok
